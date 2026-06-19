@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { persistStorage } from './storage';
+import type { PreferenciaCemento } from '@/core/materialesHelper';
 
 export type PreciosMateriales = {
   /** Cemento gris saco de 50 kg (MXN). */
@@ -91,7 +92,14 @@ const PRECIOS_DEFAULT: PreciosMateriales = {
 
 type State = {
   precios: PreciosMateriales;
+  /**
+   * Tipo de bulto de cemento que el usuario prefiere comprar
+   * (saco50 = bultos de 50 kg, saco25 = bultos de 25 kg).
+   * Default 'saco50'. Afecta TODAS las calculadoras que usan cemento.
+   */
+  preferenciaCemento: PreferenciaCemento;
   actualizar: (cambios: Partial<PreciosMateriales>) => void;
+  setPreferenciaCemento: (p: PreferenciaCemento) => void;
   restaurarDefaults: () => void;
 };
 
@@ -99,20 +107,22 @@ export const usePreciosStore = create<State>()(
   persist(
     (set) => ({
       precios: PRECIOS_DEFAULT,
+      preferenciaCemento: 'saco50' as PreferenciaCemento,
       actualizar: (cambios) =>
         set((s) => ({ precios: { ...s.precios, ...cambios } })),
-      restaurarDefaults: () => set({ precios: PRECIOS_DEFAULT }),
+      setPreferenciaCemento: (p) => set({ preferenciaCemento: p }),
+      restaurarDefaults: () =>
+        set({ precios: PRECIOS_DEFAULT, preferenciaCemento: 'saco50' }),
     }),
     {
       name: 'obracalc.precios',
       storage: createJSONStorage(() => persistStorage),
-      version: 6,
+      version: 7,
       migrate: (persistedState, version) => {
-        // Migraciones acumulativas: cualquier versión < 6 recibe los
-        // defaults nuevos por encima de los valores guardados.
-        const s = persistedState as { precios?: Partial<PreciosMateriales> };
-        if (version < 6 && s?.precios) {
-          s.precios = { ...PRECIOS_DEFAULT, ...s.precios };
+        const s = persistedState as { precios?: Partial<PreciosMateriales>; preferenciaCemento?: PreferenciaCemento };
+        if (version < 7) {
+          if (s?.precios) s.precios = { ...PRECIOS_DEFAULT, ...s.precios };
+          if (!s.preferenciaCemento) s.preferenciaCemento = 'saco50';
         }
         return s as never;
       },

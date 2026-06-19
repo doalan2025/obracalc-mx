@@ -9,7 +9,7 @@ import { parsearNumero } from '@/utils/formato';
 
 export default function CalcEscaleraScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [altura, setAltura] = useState('2.7');
   const [ancho, setAncho] = useState('1.0');
@@ -28,6 +28,8 @@ export default function CalcEscaleraScreen() {
       peraltCm: parsearNumero(peralt),
       espesorRampaCm: parsearNumero(espesor),
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         arenaM3: precios.arenaM3,

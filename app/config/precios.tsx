@@ -1,5 +1,5 @@
-import { Alert, ScrollView } from 'react-native';
-import { Button, Card, NumberField } from '@/components/UI';
+import { Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
+import { Button, Card, colors, Label, NumberField } from '@/components/UI';
 import { usePreciosStore } from '@/store/preciosStore';
 import { parsearNumero } from '@/utils/formato';
 
@@ -32,10 +32,48 @@ const CAMPOS: { key: keyof ReturnType<typeof usePreciosStore.getState>['precios'
 ];
 
 export default function PreciosScreen() {
-  const { precios, actualizar, restaurarDefaults } = usePreciosStore();
+  const {
+    precios,
+    actualizar,
+    restaurarDefaults,
+    preferenciaCemento,
+    setPreferenciaCemento,
+  } = usePreciosStore();
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+      {/* Selector de tipo de bulto de cemento */}
+      <Card>
+        <Text style={styles.tituloPref}>
+          🏗️ ¿Qué tipo de bulto de cemento usas?
+        </Text>
+        <Text style={styles.hint}>
+          Esta preferencia se aplica a TODAS las calculadoras. Elige uno
+          solo (o cambia cuando quieras según lo que esté disponible en
+          la ferretería).
+        </Text>
+        <View style={styles.chipRow}>
+          <Text
+            onPress={() => setPreferenciaCemento('saco50')}
+            style={[
+              styles.chip,
+              preferenciaCemento === 'saco50' && styles.chipActive,
+            ]}
+          >
+            🏷️ Bultos de 50 kg
+          </Text>
+          <Text
+            onPress={() => setPreferenciaCemento('saco25')}
+            style={[
+              styles.chip,
+              preferenciaCemento === 'saco25' && styles.chipActive,
+            ]}
+          >
+            🏷️ Bultos de 25 kg
+          </Text>
+        </View>
+      </Card>
+
       <Card>
         {CAMPOS.map((c) => (
           <NumberField
@@ -67,3 +105,34 @@ export default function PreciosScreen() {
     </ScrollView>
   );
 }
+
+
+const styles = StyleSheet.create({
+  tituloPref: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  hint: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: 10,
+    fontStyle: 'italic',
+  },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 999,
+    fontSize: 14,
+    color: colors.text,
+    overflow: 'hidden',
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    color: '#fff',
+    fontWeight: '700',
+  },
+});

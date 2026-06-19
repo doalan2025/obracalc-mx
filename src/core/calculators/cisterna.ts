@@ -1,25 +1,10 @@
 /**
  * Calculadora de cisterna / tinaco rectangular.
- *
- * Modelo:
- *  - Volumen útil = largo × ancho × altura (en m³, con 1 m³ = 1 000 L).
- *  - Concreto de paredes y losa: simplificación geométrica:
- *      • Losa de fondo:    largoExt × anchoExt × espesorLosa
- *      • 4 paredes:        2(largoExt + anchoExt) × alturaExt × espesorMuro
- *      • Tapa (opcional):  largoExt × anchoExt × espesorLosa
- *    largoExt = largo + 2*espesorMuro, anchoExt = ancho + 2*espesorMuro,
- *    alturaExt = altura + espesorLosa
- *  - Acero: parrilla de losa + acero vertical y horizontal en muros.
- *  - Impermeabilización interior: superficie interior × 1 (con merma).
- *  - M.O. por m³ útil (concepto mo_cisterna) o tarifa libre.
+ * Output limpio: cemento (sacos), arena/grava/agua (botes), acero (kg+ml),
+ * impermeabilizante (cubetas 19 L).
  */
 
-import {
-  DENSIDAD,
-  m3ABotes,
-  m3CementoASacos50,
-  redondearArriba,
-} from '../constants/mexico';
+import { DENSIDAD, redondearArriba } from '../constants/mexico';
 import {
   DOSIFICACIONES_CONCRETO,
   type DosificacionConcreto,
@@ -28,6 +13,13 @@ import {
   CALIBRES_VARILLA,
   type CalibreVarilla,
 } from '../constants/acero';
+import {
+  materialArena,
+  materialCementoFromM3,
+  materialGrava,
+  materialAgua,
+} from '../materialesHelper';
+import type { PreferenciaCemento } from '../materialesHelper';
 import type {
   CantidadMaterial,
   ConceptoManoObra,
@@ -37,24 +29,15 @@ import type {
 import { buscarConcepto } from '../manoObra';
 
 export type InputCisterna = {
-  /** Largo interior, m. */
   largoM: number;
-  /** Ancho interior, m. */
   anchoM: number;
-  /** Altura interior (lámina de agua), m. */
   alturaM: number;
-  /** Espesor de muros, cm. Default 15. */
   espesorMuroCm?: number;
-  /** Espesor de losas (fondo y tapa), cm. Default 12. */
   espesorLosaCm?: number;
-  /** ¿Lleva tapa de concreto? Default true. */
   conTapa?: boolean;
-  /** Calibre del acero. Default '#3'. */
   calibreAcero?: CalibreVarilla;
-  /** Separación de acero cm. Default 20. */
   separacionAceroCm?: number;
   traslapesPct?: number;
-  /** Rendimiento impermeabilizante m²/L. Default 1.5. */
   rendimientoImpM2PorL?: number;
   manosImp?: number;
   dosificacionId?: string;
@@ -62,8 +45,11 @@ export type InputCisterna = {
   conceptosMO?: ConceptoManoObra[];
   conceptoMOId?: string;
   tarifaMOM3?: number;
+  /** Tipo de bulto de cemento preferido (saco50 / saco25). Default saco50. */
+  cementoPreferido?: PreferenciaCemento;
   precios?: {
     cementoSaco50?: number;
+    cementoSaco25?: number;
     arenaM3?: number;
     gravaM3?: number;
     aguaM3?: number;
@@ -107,30 +93,25 @@ export function calcularCisterna(input: InputCisterna): SalidaCisterna {
   const volumenUtilM3 = Li * Wi * Hi;
   const capacidadLitros = volumenUtilM3 * 1000;
 
-  // Volumen de concreto: estructura completa - hueco interior
   const volExt = Lext * Wext * Hext;
   const volHueco = Li * Wi * Hi;
-  // Si no hay tapa, agregar el espacio que ocuparía la tapa
   const volSinTapa = !conTapa ? Lext * Wext * eLosa : 0;
   const volumenConcretoM3 = (volExt - volHueco - volSinTapa) * (1 + merma);
 
-  // Componentes
   const volSeco = volumenConcretoM3 * dos.factor;
   const sumaPartes = dos.cemento + dos.arena + dos.grava;
   const cementoM3 = (volSeco * dos.cemento) / sumaPartes;
   const arenaM3 = (volSeco * dos.arena) / sumaPartes;
   const gravaM3 = (volSeco * dos.grava) / sumaPartes;
-  const cementoKg = cementoM3 * DENSIDAD.cemento;
-  const sacos50 = m3CementoASacos50(cementoM3);
-  const aguaL = sacos50 * dos.aguaPorSaco50;
+  const sacos50_aprox = (cementoM3 * DENSIDAD.cemento) / 50;
+  const aguaL = sacos50_aprox * dos.aguaPorSaco50;
 
-  // Acero (estimación): superficie de losas + muros × 2 sentidos × 1/sep
+  // Acero
   const areaLosaFondo = Lext * Wext;
   const areaLosaTapa = conTapa ? Lext * Wext : 0;
   const areaMuros = 2 * (Lext + Wext) * Hext;
   const areaTotalAcero = areaLosaFondo + areaLosaTapa + areaMuros;
-  // Aprox: ml de acero = 2 sentidos × area / sep
-  const mlAcero = (2 * areaTotalAcero) / sep * (1 + traslapes);
+  const mlAcero = ((2 * areaTotalAcero) / sep) * (1 + traslapes);
   const pesoAceroKg = mlAcero * CALIBRES_VARILLA[cal].kgPorMetro;
   const alambreKg = pesoAceroKg * 0.015;
 
@@ -141,90 +122,61 @@ export function calcularCisterna(input: InputCisterna): SalidaCisterna {
   const litrosImp = (superficieInteriorM2 * manos) / rend;
   const cubetasImp = redondearArriba(litrosImp / 19);
 
-  // Costos
   const p = input.precios ?? {};
-  const costoCemento =
-    (p.cementoSaco50 ?? 0) > 0 ? redondearArriba(sacos50) * (p.cementoSaco50 ?? 0) : 0;
-  const costoArena = arenaM3 * (p.arenaM3 ?? 0);
-  const costoGrava = gravaM3 * (p.gravaM3 ?? 0);
-  const costoAgua = (aguaL / 1000) * (p.aguaM3 ?? 0);
-  const costoAcero = pesoAceroKg * (p.aceroKg ?? 0);
-  const costoAlambre = alambreKg * (p.alambreKg ?? 0);
-  const costoImp = cubetasImp * (p.impermeabilizanteCubeta ?? 0);
 
-  const materiales: CantidadMaterial[] = [
-    {
-      material: 'concreto',
-      etiqueta: 'Concreto fresco',
-      cantidad: volumenConcretoM3,
-      unidad: 'm³',
-      equivalencias: [{ etiqueta: 'Botes 19 L', valor: m3ABotes(volumenConcretoM3), unidad: 'botes' }],
-    },
-    {
-      material: 'cemento',
-      etiqueta: 'Cemento gris',
-      cantidad: cementoKg,
-      unidad: 'kg',
-      equivalencias: [{ etiqueta: 'Sacos 50 kg', valor: redondearArriba(sacos50), unidad: 'sacos' }],
-      precioUnitario: p.cementoSaco50 ?? 0,
-      costoTotal: costoCemento,
-    },
-    {
-      material: 'arena',
-      etiqueta: 'Arena',
-      cantidad: arenaM3,
-      unidad: 'm³',
-      precioUnitario: p.arenaM3 ?? 0,
-      costoTotal: costoArena,
-    },
-    {
-      material: 'grava',
-      etiqueta: 'Grava',
-      cantidad: gravaM3,
-      unidad: 'm³',
-      precioUnitario: p.gravaM3 ?? 0,
-      costoTotal: costoGrava,
-    },
-    {
-      material: 'agua',
-      etiqueta: 'Agua',
-      cantidad: aguaL,
-      unidad: 'L',
-      precioUnitario: p.aguaM3 ?? 0,
-      costoTotal: costoAgua,
-    },
-    {
-      material: 'varilla',
-      etiqueta: `Varilla ${cal}`,
-      cantidad: pesoAceroKg,
-      unidad: 'kg',
-      equivalencias: [{ etiqueta: 'Metros lineales', valor: mlAcero, unidad: 'ml' }],
-      precioUnitario: p.aceroKg ?? 0,
-      costoTotal: costoAcero,
-    },
-    {
-      material: 'alambre',
-      etiqueta: 'Alambre recocido',
-      cantidad: alambreKg,
-      unidad: 'kg',
-      precioUnitario: p.alambreKg ?? 0,
-      costoTotal: costoAlambre,
-    },
-    {
-      material: 'impermeabilizante',
-      etiqueta: 'Impermeabilizante interior',
-      cantidad: litrosImp,
-      unidad: 'L',
-      equivalencias: [{ etiqueta: 'Cubetas 19 L', valor: cubetasImp, unidad: 'cubetas' }],
-      precioUnitario: p.impermeabilizanteCubeta ?? 0,
-      costoTotal: costoImp,
-    },
-  ];
+  const materiales: CantidadMaterial[] = [];
 
-  const costoMateriales =
-    costoCemento + costoArena + costoGrava + costoAgua + costoAcero + costoAlambre + costoImp;
+  const matCemento = materialCementoFromM3(cementoM3, {
+    saco50: p.cementoSaco50,
+    saco25: p.cementoSaco25,
+      preferencia: input.cementoPreferido,
+  });
+  if (matCemento) materiales.push(matCemento);
 
-  // M.O. por m³ útil
+  const matArena = materialArena(arenaM3, p.arenaM3);
+  if (matArena) materiales.push(matArena);
+
+  const matGrava = materialGrava(gravaM3, p.gravaM3);
+  if (matGrava) materiales.push(matGrava);
+
+  const matAgua = materialAgua(aguaL, p.aguaM3);
+  if (matAgua) materiales.push(matAgua);
+
+  materiales.push({
+    material: 'varilla',
+    etiqueta: `Varilla ${cal}`,
+    cantidad: pesoAceroKg,
+    unidad: 'kg',
+    equivalencias: [{ etiqueta: 'Metros lineales', valor: mlAcero, unidad: 'ml' }],
+    precioUnitario: p.aceroKg ?? 0,
+    costoTotal: pesoAceroKg * (p.aceroKg ?? 0),
+  });
+
+  materiales.push({
+    material: 'alambre',
+    etiqueta: 'Alambre recocido',
+    cantidad: alambreKg,
+    unidad: 'kg',
+    precioUnitario: p.alambreKg ?? 0,
+    costoTotal: alambreKg * (p.alambreKg ?? 0),
+  });
+
+  materiales.push({
+    material: 'impermeabilizante',
+    etiqueta: 'Impermeabilizante interior (cubeta 19 L)',
+    cantidad: cubetasImp,
+    unidad: 'cubetas',
+    equivalencias: [{ etiqueta: 'Litros aproximados', valor: litrosImp, unidad: 'L' }],
+    precioUnitario: p.impermeabilizanteCubeta ?? 0,
+    costoTotal: cubetasImp * (p.impermeabilizanteCubeta ?? 0),
+  });
+
+  const costoMateriales = materiales.reduce(
+    (acc, m) => acc + (m.costoTotal ?? 0),
+    0,
+  );
+
+  // M.O.
   const conceptoId = input.conceptoMOId ?? 'mo_cisterna';
   const concepto = buscarConcepto(input.conceptosMO ?? [], conceptoId);
   let manoObra: CostoManoObra[] = [];
@@ -266,10 +218,13 @@ export function calcularCisterna(input: InputCisterna): SalidaCisterna {
     superficieInteriorM2,
     cubetasImpermeabilizante: cubetasImp,
     resumen: [
-      { etiqueta: 'Volumen útil', valor: `${volumenUtilM3.toFixed(2)} m³ (${(capacidadLitros / 1000).toFixed(2)} m³ = ${capacidadLitros.toFixed(0)} L)` },
+      {
+        etiqueta: 'Volumen útil',
+        valor: `${volumenUtilM3.toFixed(2)} m³ (${capacidadLitros.toFixed(0)} L)`,
+      },
       { etiqueta: 'Concreto', valor: `${volumenConcretoM3.toFixed(3)} m³` },
       { etiqueta: 'Acero', valor: `${pesoAceroKg.toFixed(1)} kg` },
-      { etiqueta: 'Impermeab. cubetas', valor: `${cubetasImp}` },
+      { etiqueta: 'Imperm. cubetas', valor: `${cubetasImp}` },
     ],
     materiales,
     manoObra,

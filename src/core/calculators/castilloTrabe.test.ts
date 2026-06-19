@@ -32,8 +32,8 @@ describe('Calculadora de castillos / trabes / columnas / cadenas', () => {
     expect(r.detalleEstribos.cantidadPorPieza).toBe(18);
     // ml total = 18 × 0.60 × 4 = 43.2 ml
     expect(r.detalleEstribos.mlTotal).toBeCloseTo(43.2, 4);
-    // Peso = 43.2 × 0.250 (#2) = 10.8 kg
-    expect(r.detalleEstribos.pesoKg).toBeCloseTo(10.8, 3);
+    // Peso del alambrón #2: 43.2 m × 0.2857 kg/m (1 kg = 3.5 m) = 12.343 kg
+    expect(r.detalleEstribos.pesoKg).toBeCloseTo(43.2 / 3.5, 3);
 
     // M.O.: castillo → ml × tarifa $140
     expect(r.manoObra).toHaveLength(1);

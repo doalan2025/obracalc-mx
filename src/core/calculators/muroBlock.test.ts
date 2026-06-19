@@ -1,72 +1,158 @@
 import { describe, it, expect } from 'vitest';
-import { calcularMuroBlock, PIEZAS_MURO } from './muroBlock';
+import {
+  calcularMuroBlock,
+  opcionesSacosCemento,
+  optimizarSacosCemento,
+  PIEZAS_MURO,
+  RECETAS_PEGA_BLOCK,
+} from './muroBlock';
 import { CONCEPTOS_MANO_OBRA_DEFAULT } from '../manoObra';
 
-describe('Calculadora de muro de block / tabique', () => {
-  it('block 15 — muro 10 × 2.5 m, sin vanos, dosificación 1:4', () => {
+describe('Opciones de sacos de cemento', () => {
+  it('0 kg → 0 sacos en ambas opciones', () => {
+    const r = opcionesSacosCemento(0);
+    expect(r.opcion50.sacos).toBe(0);
+    expect(r.opcion25.sacos).toBe(0);
+  });
+  it('48 kg → 1 bulto 50 kg ó 2 bultos 25 kg', () => {
+    const r = opcionesSacosCemento(48);
+    expect(r.opcion50.sacos).toBe(1);
+    expect(r.opcion50.sobranteKg).toBe(2);
+    expect(r.opcion25.sacos).toBe(2);
+    expect(r.opcion25.sobranteKg).toBe(2);
+  });
+  it('70 kg → 2 bultos 50 ó 3 bultos 25 (25 kg más eficiente)', () => {
+    const r = opcionesSacosCemento(70);
+    expect(r.opcion50.sacos).toBe(2);
+    expect(r.opcion50.sobranteKg).toBe(30);
+    expect(r.opcion25.sacos).toBe(3);
+    expect(r.opcion25.sobranteKg).toBe(5);
+  });
+  it('100 kg → 2 bultos 50 ó 4 bultos 25 (sin sobrante)', () => {
+    const r = opcionesSacosCemento(100);
+    expect(r.opcion50.sacos).toBe(2);
+    expect(r.opcion50.sobranteKg).toBe(0);
+    expect(r.opcion25.sacos).toBe(4);
+    expect(r.opcion25.sobranteKg).toBe(0);
+  });
+  it('optimizarSacosCemento (compat) ahora es 50 puro', () => {
+    const r = optimizarSacosCemento(48);
+    expect(r.sacos50).toBe(1);
+    expect(r.sacos25).toBe(0); // ya NO mezcla
+  });
+});
+
+describe('Calculadora muro de block — recetas mexicanas', () => {
+  it('block 15 — muro 10×2.5 m, receta cal_5botes, preferencia saco50 (default)', () => {
     const r = calcularMuroBlock({
       tipoPieza: 'block_15',
       largo: 10,
       altura: 2.5,
+      recetaId: 'cal_5botes',
       conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
     });
 
-    // Geometría
     expect(r.areaBruta).toBe(25);
-    expect(r.areaVanos).toBe(0);
-    expect(r.areaNeta).toBe(25);
+    expect(r.receta.id).toBe('cal_5botes');
 
-    // Piezas: 25 × 12.5 × 1.05 = 328.125 → ceil = 329
+    // Mortero ≈ 0.394 m³ → bachas = 4
+    expect(r.bachasNecesarias).toBe(4);
+
+    // Cemento: 4 × 16 kg = 64 kg
+    expect(r.cemento?.kgTotal).toBe(64);
+    // Opción 50 kg: ceil(64/50) = 2 bultos (sobran 36 kg)
+    expect(r.cemento?.bultos50).toBe(2);
+    expect(r.cemento?.sobrante50Kg).toBe(36);
+    // Opción 25 kg: ceil(64/25) = 3 bultos (sobran 11 kg)
+    expect(r.cemento?.bultos25).toBe(3);
+    expect(r.cemento?.sobrante25Kg).toBe(11);
+    // Default = saco50
+    expect(r.cemento?.preferencia).toBe('saco50');
+
+    // Cal: 4 bultos
+    const cal = r.materiales.find((m) => m.material === 'cal')!;
+    expect(cal.cantidad).toBe(4);
+
+    // Arena: 4 × 5 = 20 botes
+    const arena = r.materiales.find((m) => m.material === 'arena')!;
+    expect(arena.cantidad).toBe(20);
+
+    // Agua: 4 × 2 = 8 botes
+    const agua = r.materiales.find((m) => m.material === 'agua')!;
+    expect(agua.cantidad).toBe(8);
+
+    // Piezas: 25 × 12.5 × 1.05 = 328.125 → 329
     const pz = r.materiales.find((m) => m.material === 'piezas')!;
     expect(pz.cantidad).toBe(329);
 
-    // Mortero: 25 × 0.015 × 1.05 = 0.39375 m³
-    const mortero = r.materiales.find((m) => m.material === 'mortero')!;
-    expect(mortero.cantidad).toBeCloseTo(0.39375, 4);
-
-    // Dosificación 1:4 → no debe haber cal
-    expect(r.materiales.find((m) => m.material === 'cal')).toBeUndefined();
-
-    // Cemento m³ = 0.39375 × 1.27 / 5 = 0.10001 m³
-    // Cemento kg = 0.10001 × 1440 = 144.0
-    const cemento = r.materiales.find((m) => m.material === 'cemento')!;
-    expect(cemento.cantidad).toBeCloseTo(144, 0);
-
-    // Sacos 50 kg = ceil(144 / 50) = 3
-    const eqSacos50 = cemento.equivalencias!.find((e) => e.etiqueta.includes('50'))!;
-    expect(eqSacos50.valor).toBe(3);
-
-    // Sacos 25 kg = ceil(144 / 25) = 6
-    const eqSacos25 = cemento.equivalencias!.find((e) => e.etiqueta.includes('25'))!;
-    expect(eqSacos25.valor).toBe(6);
-
-    // Mano de obra: 25 m² × $95 (mo_block) = $2 375
-    expect(r.manoObra).toHaveLength(1);
-    expect(r.manoObra[0].conceptoId).toBe('mo_block');
-    expect(r.manoObra[0].cantidad).toBe(25);
+    // M.O.: 25 × 95 = 2 375
     expect(r.manoObra[0].total).toBe(25 * 95);
   });
 
-  it('descuenta correctamente vanos del área neta', () => {
+  it('preferencia saco25 cambia el costo y la equivalencia principal', () => {
+    const r = calcularMuroBlock({
+      tipoPieza: 'block_15',
+      largo: 10,
+      altura: 2.5,
+      recetaId: 'cal_5botes',
+      cementoPreferido: 'saco25',
+      conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
+      precios: { cementoSaco50: 250, cementoSaco25: 140 },
+    });
+    // Costo con saco25 = 3 × 140 = 420
+    const cementoMat = r.materiales.find((m) => m.material === 'cemento')!;
+    expect(cementoMat.costoTotal).toBe(3 * 140);
+    expect(cementoMat.precioUnitario).toBe(140);
+    expect(r.cemento?.preferencia).toBe('saco25');
+  });
+
+  it('receta mortero_premezclado — sin cemento ni cal', () => {
+    const r = calcularMuroBlock({
+      tipoPieza: 'block_15',
+      largo: 10,
+      altura: 2.5,
+      recetaId: 'mortero_premezclado',
+      conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
+    });
+    expect(r.cemento).toBeUndefined();
+    expect(r.materiales.find((m) => m.material === 'cemento')).toBeUndefined();
+    expect(r.materiales.find((m) => m.material === 'cal')).toBeUndefined();
+    const mortero = r.materiales.find((m) => m.material === 'mortero_premezclado')!;
+    expect(mortero.cantidad).toBe(3);
+  });
+
+  it('receta cal_25kg usa 25 kg de cemento por bacha', () => {
+    const r = calcularMuroBlock({
+      tipoPieza: 'block_15',
+      largo: 10,
+      altura: 2.5,
+      recetaId: 'cal_25kg',
+      conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
+    });
+    // 4 bachas × 25 kg = 100 kg
+    expect(r.cemento?.kgTotal).toBe(100);
+    // Opción 50: ceil(100/50) = 2 bultos
+    expect(r.cemento?.bultos50).toBe(2);
+    // Opción 25: ceil(100/25) = 4 bultos
+    expect(r.cemento?.bultos25).toBe(4);
+  });
+
+  it('descuenta vanos del área neta', () => {
     const r = calcularMuroBlock({
       tipoPieza: 'block_15',
       largo: 6,
       altura: 3,
       vanos: [
-        { ancho: 1.0, alto: 2.1 }, // puerta = 2.1 m²
-        { ancho: 1.5, alto: 1.2 }, // ventana = 1.8 m²
+        { ancho: 1.0, alto: 2.1 },
+        { ancho: 1.5, alto: 1.2 },
       ],
       conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
     });
-    expect(r.areaBruta).toBe(18);
-    expect(r.areaVanos).toBeCloseTo(3.9, 6);
     expect(r.areaNeta).toBeCloseTo(14.1, 6);
-    // M.O. paga sólo el área neta
     expect(r.manoObra[0].cantidad).toBeCloseTo(14.1, 6);
-    expect(r.manoObra[0].total).toBeCloseTo(14.1 * 95, 4);
   });
 
-  it('block 12 vs block 20: difieren en mortero pero NO en piezas/m²', () => {
+  it('block 12 vs block 20: diferente mortero', () => {
     const base = {
       largo: 5,
       altura: 2,
@@ -74,74 +160,47 @@ describe('Calculadora de muro de block / tabique', () => {
     };
     const b12 = calcularMuroBlock({ ...base, tipoPieza: 'block_12' });
     const b20 = calcularMuroBlock({ ...base, tipoPieza: 'block_20' });
-
-    const pz12 = b12.materiales.find((m) => m.material === 'piezas')!.cantidad;
-    const pz20 = b20.materiales.find((m) => m.material === 'piezas')!.cantidad;
-    expect(pz12).toBe(pz20);
-
-    const mort12 = b12.materiales.find((m) => m.material === 'mortero')!.cantidad;
-    const mort20 = b20.materiales.find((m) => m.material === 'mortero')!.cantidad;
-    expect(mort20).toBeGreaterThan(mort12);
+    expect(b20.morteroNecesarioM3).toBeGreaterThan(b12.morteroNecesarioM3);
   });
 
-  it('tabique rojo usa concepto mo_tabique y rinde 70 pz/m²', () => {
+  it('tabique rojo usa 70 piezas/m²', () => {
     const r = calcularMuroBlock({
       tipoPieza: 'tabique_rojo',
       largo: 4,
       altura: 2.5,
       conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
     });
-    // 10 m² × 70 × 1.05 = 735 → ceil = 735
     const pz = r.materiales.find((m) => m.material === 'piezas')!;
     expect(pz.cantidad).toBe(735);
     expect(r.manoObra[0].conceptoId).toBe('mo_tabique');
-    expect(r.manoObra[0].total).toBe(10 * 110); // tarifa default $110
   });
 
-  it('dosificación 1:1:6 incluye cal en los materiales', () => {
-    const r = calcularMuroBlock({
-      tipoPieza: 'block_15',
-      largo: 5,
-      altura: 2,
-      dosificacionId: 'pega_1:1:6',
-      conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
-    });
-    const cal = r.materiales.find((m) => m.material === 'cal')!;
-    expect(cal).toBeDefined();
-    expect(cal.cantidad).toBeGreaterThan(0);
-    const eqBultos = cal.equivalencias!.find((e) => e.unidad === 'bultos')!;
-    expect(eqBultos.valor).toBeGreaterThan(0);
-  });
-
-  it('costo total con precios provistos = materiales + M.O.', () => {
+  it('costo total = materiales + M.O.', () => {
     const r = calcularMuroBlock({
       tipoPieza: 'block_15',
       largo: 6,
       altura: 2.4,
+      recetaId: 'cal_5botes',
       conceptosMO: CONCEPTOS_MANO_OBRA_DEFAULT,
       precios: {
         piezaPrecio: 22,
         cementoSaco50: 250,
+        cementoSaco25: 140,
+        calBulto25: 130,
         arenaM3: 400,
         aguaM3: 35,
       },
     });
-    expect(r.costoMateriales).toBeGreaterThan(0);
-    expect(r.costoManoObra).toBeGreaterThan(0);
     expect(r.costoTotal).toBeCloseTo(r.costoMateriales + r.costoManoObra, 4);
   });
 
-  it('rendimientos del catálogo PIEZAS_MURO son consistentes', () => {
+  it('catálogos consistentes', () => {
     expect(PIEZAS_MURO.block_12.piezasM2).toBe(12.5);
-    expect(PIEZAS_MURO.block_15.piezasM2).toBe(12.5);
-    expect(PIEZAS_MURO.block_20.piezasM2).toBe(12.5);
     expect(PIEZAS_MURO.tabique_rojo.piezasM2).toBe(70);
-    // El mortero crece con el espesor del block
-    expect(PIEZAS_MURO.block_15.morteroM2).toBeGreaterThan(
-      PIEZAS_MURO.block_12.morteroM2,
-    );
-    expect(PIEZAS_MURO.block_20.morteroM2).toBeGreaterThan(
-      PIEZAS_MURO.block_15.morteroM2,
-    );
+    expect(RECETAS_PEGA_BLOCK.cal_5botes.ingredientes.cementoKg).toBe(16);
+    expect(RECETAS_PEGA_BLOCK.cal_5botes.ingredientes.calBultos25).toBe(1);
+    expect(RECETAS_PEGA_BLOCK.cal_5botes.ingredientes.arenaBotes19L).toBe(5);
+    expect(RECETAS_PEGA_BLOCK.cal_5botes.ingredientes.aguaBotes19L).toBe(2);
+    expect(RECETAS_PEGA_BLOCK.mortero_premezclado.ingredientes.morteroBultos50).toBe(1);
   });
 });

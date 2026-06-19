@@ -27,7 +27,7 @@ const MALLA_IDS = Object.keys(MALLAS);
 
 export default function CalcFirmeScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [modo, setModo] = useState<'area' | 'dimensiones'>('area');
   const [area, setArea] = useState('30');
@@ -49,6 +49,8 @@ export default function CalcFirmeScreen() {
       mallaId,
       dosificacionId: dosId,
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         arenaM3: precios.arenaM3,

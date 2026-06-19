@@ -1,22 +1,9 @@
 /**
  * Calculadora de zapatas (aisladas y corridas).
- *
- * Modelo:
- *  - Zapata AISLADA: a × b × h
- *      Acero parrilla en 2 sentidos (igual que losa maciza pequeña).
- *      M.O. por pieza (mo_zapata).
- *  - Zapata CORRIDA: ancho × altura × largo
- *      Acero longitudinal (default 4 var) + estribos.
- *      M.O. por ml.
+ * Output limpio: cemento (sacos), arena/grava/agua (botes), acero (kg+ml).
  */
 
-import {
-  DENSIDAD,
-  m3ABotes,
-  m3CementoASacos25,
-  m3CementoASacos50,
-  redondearArriba,
-} from '../constants/mexico';
+import { DENSIDAD, redondearArriba } from '../constants/mexico';
 import {
   DOSIFICACIONES_CONCRETO,
   type DosificacionConcreto,
@@ -25,6 +12,13 @@ import {
   CALIBRES_VARILLA,
   type CalibreVarilla,
 } from '../constants/acero';
+import {
+  materialArena,
+  materialCementoFromM3,
+  materialGrava,
+  materialAgua,
+} from '../materialesHelper';
+import type { PreferenciaCemento } from '../materialesHelper';
 import type {
   CantidadMaterial,
   ConceptoManoObra,
@@ -37,23 +31,15 @@ export type TipoZapata = 'aislada' | 'corrida';
 
 export type InputZapata = {
   tipo: TipoZapata;
-  /** Lado A (aislada) o ancho (corrida), m. */
   a: number;
-  /** Lado B (aislada) o altura (corrida), m. */
   b: number;
-  /** Altura (aislada) o largo (corrida), m. */
   h: number;
-  /** Cantidad de zapatas iguales. Default 1. */
   cantidad?: number;
-  // Acero
-  calibreParrilla?: CalibreVarilla; // aislada
-  separacionXCm?: number;           // aislada
-  separacionYCm?: number;           // aislada
-  /** Para corrida: # varillas longitudinales. Default 4. */
+  calibreParrilla?: CalibreVarilla;
+  separacionXCm?: number;
+  separacionYCm?: number;
   varillasLong?: number;
-  /** Para corrida: calibre longitudinal. Default '#3'. */
   calibreLong?: CalibreVarilla;
-  /** Para corrida: separación de estribos cm. Default 20. */
   separacionEstribosCm?: number;
   calibreEstribo?: CalibreVarilla;
   recubrimientoCm?: number;
@@ -63,6 +49,8 @@ export type InputZapata = {
   mermaConcretoPct?: number;
   conceptosMO?: ConceptoManoObra[];
   conceptoMOId?: string;
+  /** Tipo de bulto de cemento preferido (saco50 / saco25). Default saco50. */
+  cementoPreferido?: PreferenciaCemento;
   precios?: {
     cementoSaco50?: number;
     cementoSaco25?: number;
@@ -92,19 +80,15 @@ export function calcularZapata(input: InputZapata): SalidaZapata {
   const volumenUna = input.a * input.b * input.h;
   const volumenConcretoM3 = volumenUna * cantidad * (1 + merma);
 
-  // Componentes
   const volSeco = volumenConcretoM3 * dos.factor;
   const sumaPartes = dos.cemento + dos.arena + dos.grava;
   const cementoM3 = (volSeco * dos.cemento) / sumaPartes;
   const arenaM3 = (volSeco * dos.arena) / sumaPartes;
   const gravaM3 = (volSeco * dos.grava) / sumaPartes;
-  const cementoKg = cementoM3 * DENSIDAD.cemento;
-  const sacos50 = m3CementoASacos50(cementoM3);
-  const sacos25 = m3CementoASacos25(cementoM3);
-  const aguaL = sacos50 * dos.aguaPorSaco50;
-  const aguaM3 = aguaL / 1000;
+  const sacos50_aprox = (cementoM3 * DENSIDAD.cemento) / 50;
+  const aguaL = sacos50_aprox * dos.aguaPorSaco50;
 
-  // ---- Acero ----
+  // Acero
   let pesoAceroKg = 0;
   let mlAceroTotal = 0;
   const calParr = input.calibreParrilla ?? '#3';
@@ -137,9 +121,8 @@ export function calcularZapata(input: InputZapata): SalidaZapata {
       costoTotal: pesoAceroKg * (input.precios?.aceroKg ?? 0),
     });
   } else {
-    // Corrida
     const numLong = input.varillasLong ?? 4;
-    const longTotal = input.h; // largo de la zapata corrida
+    const longTotal = input.h;
     const mlLong = numLong * longTotal * cantidad * (1 + traslapes);
     const pesoLongKg = mlLong * CALIBRES_VARILLA[calLong].kgPorMetro;
 
@@ -171,12 +154,15 @@ export function calcularZapata(input: InputZapata): SalidaZapata {
       },
       {
         material: 'varilla_estribo',
-        etiqueta: `Estribos ${calEst}`,
+        etiqueta: calEst === '#2' ? `Alambrón ${calEst} para estribos` : `Estribos ${calEst}`,
         cantidad: pesoEstKg,
         unidad: 'kg',
         equivalencias: [
           { etiqueta: 'Metros lineales', valor: mlEst, unidad: 'ml' },
-          { etiqueta: 'Cantidad', valor: cantEst * cantidad, unidad: 'pza' },
+          { etiqueta: 'Cantidad estribos', valor: cantEst * cantidad, unidad: 'pza' },
+          ...(calEst === '#2'
+            ? [{ etiqueta: 'Alambrón (3.5 m/kg)', valor: pesoEstKg, unidad: 'kg' }]
+            : []),
         ],
         precioUnitario: input.precios?.aceroKg ?? 0,
         costoTotal: pesoEstKg * (input.precios?.aceroKg ?? 0),
@@ -186,79 +172,41 @@ export function calcularZapata(input: InputZapata): SalidaZapata {
 
   const alambreKg = pesoAceroKg * 0.015;
 
-  // Costos
   const p = input.precios ?? {};
-  const costoCemento =
-    (p.cementoSaco50 ?? 0) > 0
-      ? redondearArriba(sacos50) * (p.cementoSaco50 ?? 0)
-      : (p.cementoSaco25 ?? 0) > 0
-        ? redondearArriba(sacos25) * (p.cementoSaco25 ?? 0)
-        : 0;
-  const costoArena = arenaM3 * (p.arenaM3 ?? 0);
-  const costoGrava = gravaM3 * (p.gravaM3 ?? 0);
-  const costoAgua = aguaM3 * (p.aguaM3 ?? 0);
-  const costoAcero = pesoAceroKg * (p.aceroKg ?? 0);
-  const costoAlambre = alambreKg * (p.alambreKg ?? 0);
 
-  const materiales: CantidadMaterial[] = [
-    {
-      material: 'concreto',
-      etiqueta: 'Concreto fresco',
-      cantidad: volumenConcretoM3,
-      unidad: 'm³',
-      equivalencias: [{ etiqueta: 'Botes 19 L', valor: m3ABotes(volumenConcretoM3), unidad: 'botes' }],
-    },
-    {
-      material: 'cemento',
-      etiqueta: 'Cemento gris',
-      cantidad: cementoKg,
-      unidad: 'kg',
-      equivalencias: [
-        { etiqueta: 'Sacos 50 kg', valor: redondearArriba(sacos50), unidad: 'sacos' },
-        { etiqueta: 'Sacos 25 kg', valor: redondearArriba(sacos25), unidad: 'sacos' },
-      ],
-      precioUnitario: p.cementoSaco50 ?? p.cementoSaco25 ?? 0,
-      costoTotal: costoCemento,
-    },
-    {
-      material: 'arena',
-      etiqueta: 'Arena',
-      cantidad: arenaM3,
-      unidad: 'm³',
-      equivalencias: [{ etiqueta: 'Botes 19 L', valor: m3ABotes(arenaM3), unidad: 'botes' }],
-      precioUnitario: p.arenaM3 ?? 0,
-      costoTotal: costoArena,
-    },
-    {
-      material: 'grava',
-      etiqueta: 'Grava',
-      cantidad: gravaM3,
-      unidad: 'm³',
-      equivalencias: [{ etiqueta: 'Botes 19 L', valor: m3ABotes(gravaM3), unidad: 'botes' }],
-      precioUnitario: p.gravaM3 ?? 0,
-      costoTotal: costoGrava,
-    },
-    {
-      material: 'agua',
-      etiqueta: 'Agua',
-      cantidad: aguaL,
-      unidad: 'L',
-      precioUnitario: p.aguaM3 ?? 0,
-      costoTotal: costoAgua,
-    },
-    ...aceroBlocks,
-    {
-      material: 'alambre',
-      etiqueta: 'Alambre recocido',
-      cantidad: alambreKg,
-      unidad: 'kg',
-      precioUnitario: p.alambreKg ?? 0,
-      costoTotal: costoAlambre,
-    },
-  ];
+  const materiales: CantidadMaterial[] = [];
 
-  const costoMateriales =
-    costoCemento + costoArena + costoGrava + costoAgua + costoAcero + costoAlambre;
+  const matCemento = materialCementoFromM3(cementoM3, {
+    saco50: p.cementoSaco50,
+    saco25: p.cementoSaco25,
+      preferencia: input.cementoPreferido,
+  });
+  if (matCemento) materiales.push(matCemento);
+
+  const matArena = materialArena(arenaM3, p.arenaM3);
+  if (matArena) materiales.push(matArena);
+
+  const matGrava = materialGrava(gravaM3, p.gravaM3);
+  if (matGrava) materiales.push(matGrava);
+
+  const matAgua = materialAgua(aguaL, p.aguaM3);
+  if (matAgua) materiales.push(matAgua);
+
+  materiales.push(...aceroBlocks);
+
+  materiales.push({
+    material: 'alambre',
+    etiqueta: 'Alambre recocido',
+    cantidad: alambreKg,
+    unidad: 'kg',
+    precioUnitario: p.alambreKg ?? 0,
+    costoTotal: alambreKg * (p.alambreKg ?? 0),
+  });
+
+  const costoMateriales = materiales.reduce(
+    (acc, m) => acc + (m.costoTotal ?? 0),
+    0,
+  );
 
   // Mano de obra
   const conceptoId =
@@ -290,10 +238,12 @@ export function calcularZapata(input: InputZapata): SalidaZapata {
     pesoAceroKg,
     resumen: [
       { etiqueta: 'Tipo', valor: input.tipo === 'aislada' ? 'Zapata aislada' : 'Zapata corrida' },
-      { etiqueta: 'Dimensiones', valor: `${input.a} × ${input.b} × ${input.h} m × ${cantidad} pza` },
-      { etiqueta: 'Concreto', valor: `${volumenConcretoM3.toFixed(3)} m³` },
+      {
+        etiqueta: 'Dimensiones',
+        valor: `${input.a} × ${input.b} × ${input.h} m × ${cantidad} pza`,
+      },
+      { etiqueta: 'Volumen concreto', valor: `${volumenConcretoM3.toFixed(3)} m³` },
       { etiqueta: 'Acero total', valor: `${pesoAceroKg.toFixed(2)} kg` },
-      { etiqueta: 'Cemento', valor: `${redondearArriba(sacos50)} sacos 50 kg` },
     ],
     materiales,
     manoObra,

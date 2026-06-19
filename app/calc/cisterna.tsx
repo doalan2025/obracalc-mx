@@ -9,7 +9,7 @@ import { parsearNumero } from '@/utils/formato';
 
 export default function CalcCisternaScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [largo, setLargo] = useState('2');
   const [ancho, setAncho] = useState('1.5');
@@ -31,6 +31,8 @@ export default function CalcCisternaScreen() {
       espesorLosaCm: parsearNumero(eLosa),
       conTapa,
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         arenaM3: precios.arenaM3,

@@ -9,7 +9,7 @@ import { parsearNumero } from '@/utils/formato';
 
 export default function CalcZapataScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [tipo, setTipo] = useState<TipoZapata>('aislada');
   const [a, setA] = useState('1.2');
@@ -27,6 +27,8 @@ export default function CalcZapataScreen() {
       a: A, b: B, h: H,
       cantidad: parsearNumero(cantidad),
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         arenaM3: precios.arenaM3,

@@ -71,7 +71,7 @@ const DEFAULTS_POR_TIPO: Record<
 
 export default function CalcCastilloTrabeScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [tipo, setTipo] = useState<TipoElementoLineal>('castillo');
   const def = DEFAULTS_POR_TIPO.castillo;
@@ -124,6 +124,8 @@ export default function CalcCastilloTrabeScreen() {
       dosificacionId: dosId,
       mermaConcretoPct: parsearNumero(mermaConcreto),
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         cementoSaco25: precios.cementoSaco25,

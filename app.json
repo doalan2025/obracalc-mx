@@ -4,28 +4,35 @@
     "slug": "obracalc-mx",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "scheme": "obracalcmx",
     "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1f6feb"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "mx.obracalc.app"
     },
     "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1f6feb"
+      },
       "package": "mx.obracalc.app"
     },
     "web": {
       "bundler": "metro",
       "output": "static",
+      "favicon": "./assets/favicon.png",
       "name": "ObraCalc MX",
       "shortName": "ObraCalc",
       "themeColor": "#1f6feb",
       "backgroundColor": "#ffffff"
     },
-    "plugins": [
-      "expo-router",
-      "expo-sharing",
-      "expo-status-bar"
-    ],
+    "plugins": ["expo-router"],
     "experiments": {
       "typedRoutes": true
     }

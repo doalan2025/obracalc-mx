@@ -34,7 +34,7 @@ const MALLA_IDS = Object.keys(MALLAS);
 
 export default function CalcLosaAligeradaScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [largo, setLargo] = useState('5');
   const [ancho, setAncho] = useState('4');
@@ -69,6 +69,8 @@ export default function CalcLosaAligeradaScreen() {
       mallaId,
       dosificacionId: dosId,
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         arenaM3: precios.arenaM3,

@@ -30,7 +30,7 @@ const ELEMENTOS: { v: ElementoConcreto; label: string }[] = [
 
 export default function CalcConcretoScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [elemento, setElemento] = useState<ElementoConcreto>('losa');
   const [largo, setLargo] = useState('8.5');
@@ -54,6 +54,8 @@ export default function CalcConcretoScreen() {
       dosificacionId: dosId,
       mermaPct: isFinite(M) ? M : 5,
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         cementoSaco25: precios.cementoSaco25,

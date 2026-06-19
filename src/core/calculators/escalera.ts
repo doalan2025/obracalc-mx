@@ -1,21 +1,9 @@
 /**
  * Calculadora de escalera de concreto.
- *
- * Modelo:
- *  - Geometría: altura total H y huella (peldaño) configurable.
- *  - # de escalones = redondear(H / peraltUnitario).
- *  - Volumen escalón triangular = 0.5 × huella × peralte × ancho.
- *  - Losa de rampa: largo × ancho × espesor (longitud horizontal).
- *  - Acero: barras longitudinales bajo la rampa + bastones por escalón.
- *  - M.O.: por m² de área proyectada.
+ * Output limpio: cemento (sacos), arena/grava/agua (botes), acero (kg+ml).
  */
 
-import {
-  DENSIDAD,
-  m3ABotes,
-  m3CementoASacos50,
-  redondearArriba,
-} from '../constants/mexico';
+import { DENSIDAD, redondearArriba } from '../constants/mexico';
 import {
   DOSIFICACIONES_CONCRETO,
   type DosificacionConcreto,
@@ -24,6 +12,13 @@ import {
   CALIBRES_VARILLA,
   type CalibreVarilla,
 } from '../constants/acero';
+import {
+  materialArena,
+  materialCementoFromM3,
+  materialGrava,
+  materialAgua,
+} from '../materialesHelper';
+import type { PreferenciaCemento } from '../materialesHelper';
 import type {
   CantidadMaterial,
   ConceptoManoObra,
@@ -33,28 +28,24 @@ import type {
 import { buscarConcepto } from '../manoObra';
 
 export type InputEscalera = {
-  /** Altura total a salvar, m. */
   alturaTotalM: number;
-  /** Ancho de la escalera, m. */
   anchoM: number;
-  /** Huella del peldaño en cm. Default 28. */
   huellaCm?: number;
-  /** Peralte de cada peldaño en cm. Default 18. */
   peraltCm?: number;
-  /** Espesor de losa de rampa en cm. Default 12. */
   espesorRampaCm?: number;
-  /** # varillas longitudinales bajo la rampa. Default 5. */
   varillasLong?: number;
   calibreLong?: CalibreVarilla;
-  /** % traslapes. Default 10. */
   traslapesPct?: number;
   dosificacionId?: string;
   mermaConcretoPct?: number;
   conceptosMO?: ConceptoManoObra[];
   conceptoMOId?: string;
   tarifaMOM2?: number;
+  /** Tipo de bulto de cemento preferido (saco50 / saco25). Default saco50. */
+  cementoPreferido?: PreferenciaCemento;
   precios?: {
     cementoSaco50?: number;
+    cementoSaco25?: number;
     arenaM3?: number;
     gravaM3?: number;
     aguaM3?: number;
@@ -87,28 +78,25 @@ export function calcularEscalera(input: InputEscalera): SalidaEscalera {
   const longHorizontal = numEscalones * huella;
   const longRampa = Math.sqrt(input.alturaTotalM ** 2 + longHorizontal ** 2);
 
-  // Volumen de cada peldaño (triángulo) + losa rampa
   const volPeldano = 0.5 * huella * peralt * ancho;
   const volPeldanos = numEscalones * volPeldano;
   const volRampa = longRampa * ancho * espesor;
   const volumenConcretoM3 = (volPeldanos + volRampa) * (1 + merma);
 
-  // Componentes
   const volSeco = volumenConcretoM3 * dos.factor;
   const sumaPartes = dos.cemento + dos.arena + dos.grava;
   const cementoM3 = (volSeco * dos.cemento) / sumaPartes;
   const arenaM3 = (volSeco * dos.arena) / sumaPartes;
   const gravaM3 = (volSeco * dos.grava) / sumaPartes;
-  const cementoKg = cementoM3 * DENSIDAD.cemento;
-  const sacos50 = m3CementoASacos50(cementoM3);
-  const aguaL = sacos50 * dos.aguaPorSaco50;
+  const sacos50_aprox = (cementoM3 * DENSIDAD.cemento) / 50;
+  const aguaL = sacos50_aprox * dos.aguaPorSaco50;
 
   // Acero
   const numLong = input.varillasLong ?? 5;
   const calLong = input.calibreLong ?? '#3';
   const mlLong = numLong * longRampa * (1 + traslapes);
   const pesoLong = mlLong * CALIBRES_VARILLA[calLong].kgPorMetro;
-  // Estribos / bastones por escalón ~ 1 estribo/escalón × ancho
+  // Estribos #2 (alambrón)
   const mlEst = numEscalones * (ancho * 2 + 0.4) * (1 + traslapes);
   const pesoEst = mlEst * CALIBRES_VARILLA['#2'].kgPorMetro;
 
@@ -116,91 +104,63 @@ export function calcularEscalera(input: InputEscalera): SalidaEscalera {
   const alambreKg = pesoAcero * 0.015;
 
   const p = input.precios ?? {};
-  const costoCemento =
-    (p.cementoSaco50 ?? 0) > 0
-      ? redondearArriba(sacos50) * (p.cementoSaco50 ?? 0)
-      : 0;
-  const costoArena = arenaM3 * (p.arenaM3 ?? 0);
-  const costoGrava = gravaM3 * (p.gravaM3 ?? 0);
-  const costoAgua = (aguaL / 1000) * (p.aguaM3 ?? 0);
-  const costoAcero = pesoAcero * (p.aceroKg ?? 0);
-  const costoAlambre = alambreKg * (p.alambreKg ?? 0);
 
-  const materiales: CantidadMaterial[] = [
-    {
-      material: 'concreto',
-      etiqueta: 'Concreto fresco',
-      cantidad: volumenConcretoM3,
-      unidad: 'm³',
-      equivalencias: [{ etiqueta: 'Botes 19 L', valor: m3ABotes(volumenConcretoM3), unidad: 'botes' }],
-    },
-    {
-      material: 'cemento',
-      etiqueta: 'Cemento gris',
-      cantidad: cementoKg,
-      unidad: 'kg',
-      equivalencias: [
-        { etiqueta: 'Sacos 50 kg', valor: redondearArriba(sacos50), unidad: 'sacos' },
-      ],
-      precioUnitario: p.cementoSaco50 ?? 0,
-      costoTotal: costoCemento,
-    },
-    {
-      material: 'arena',
-      etiqueta: 'Arena',
-      cantidad: arenaM3,
-      unidad: 'm³',
-      precioUnitario: p.arenaM3 ?? 0,
-      costoTotal: costoArena,
-    },
-    {
-      material: 'grava',
-      etiqueta: 'Grava',
-      cantidad: gravaM3,
-      unidad: 'm³',
-      precioUnitario: p.gravaM3 ?? 0,
-      costoTotal: costoGrava,
-    },
-    {
-      material: 'agua',
-      etiqueta: 'Agua',
-      cantidad: aguaL,
-      unidad: 'L',
-      precioUnitario: p.aguaM3 ?? 0,
-      costoTotal: costoAgua,
-    },
-    {
-      material: 'varilla_long',
-      etiqueta: `Varilla ${calLong} (longitudinal rampa)`,
-      cantidad: pesoLong,
-      unidad: 'kg',
-      equivalencias: [{ etiqueta: 'Metros lineales', valor: mlLong, unidad: 'ml' }],
-      precioUnitario: p.aceroKg ?? 0,
-      costoTotal: pesoLong * (p.aceroKg ?? 0),
-    },
-    {
-      material: 'varilla_estribo',
-      etiqueta: 'Estribos #2 por escalón',
-      cantidad: pesoEst,
-      unidad: 'kg',
-      equivalencias: [{ etiqueta: 'Metros lineales', valor: mlEst, unidad: 'ml' }],
-      precioUnitario: p.aceroKg ?? 0,
-      costoTotal: pesoEst * (p.aceroKg ?? 0),
-    },
-    {
-      material: 'alambre',
-      etiqueta: 'Alambre recocido',
-      cantidad: alambreKg,
-      unidad: 'kg',
-      precioUnitario: p.alambreKg ?? 0,
-      costoTotal: costoAlambre,
-    },
-  ];
+  const materiales: CantidadMaterial[] = [];
 
-  const costoMateriales =
-    costoCemento + costoArena + costoGrava + costoAgua + costoAcero + costoAlambre;
+  const matCemento = materialCementoFromM3(cementoM3, {
+    saco50: p.cementoSaco50,
+    saco25: p.cementoSaco25,
+      preferencia: input.cementoPreferido,
+  });
+  if (matCemento) materiales.push(matCemento);
 
-  // M.O. por m² proyectado
+  const matArena = materialArena(arenaM3, p.arenaM3);
+  if (matArena) materiales.push(matArena);
+
+  const matGrava = materialGrava(gravaM3, p.gravaM3);
+  if (matGrava) materiales.push(matGrava);
+
+  const matAgua = materialAgua(aguaL, p.aguaM3);
+  if (matAgua) materiales.push(matAgua);
+
+  materiales.push({
+    material: 'varilla_long',
+    etiqueta: `Varilla ${calLong} (longitudinal rampa)`,
+    cantidad: pesoLong,
+    unidad: 'kg',
+    equivalencias: [{ etiqueta: 'Metros lineales', valor: mlLong, unidad: 'ml' }],
+    precioUnitario: p.aceroKg ?? 0,
+    costoTotal: pesoLong * (p.aceroKg ?? 0),
+  });
+
+  materiales.push({
+    material: 'varilla_estribo',
+    etiqueta: 'Alambrón #2 para estribos por escalón',
+    cantidad: pesoEst,
+    unidad: 'kg',
+    equivalencias: [
+      { etiqueta: 'Metros lineales', valor: mlEst, unidad: 'ml' },
+      { etiqueta: 'Alambrón (3.5 m/kg)', valor: pesoEst, unidad: 'kg' },
+    ],
+    precioUnitario: p.aceroKg ?? 0,
+    costoTotal: pesoEst * (p.aceroKg ?? 0),
+  });
+
+  materiales.push({
+    material: 'alambre',
+    etiqueta: 'Alambre recocido',
+    cantidad: alambreKg,
+    unidad: 'kg',
+    precioUnitario: p.alambreKg ?? 0,
+    costoTotal: alambreKg * (p.alambreKg ?? 0),
+  });
+
+  const costoMateriales = materiales.reduce(
+    (acc, m) => acc + (m.costoTotal ?? 0),
+    0,
+  );
+
+  // M.O.
   const areaProyectada = longHorizontal * ancho;
   const conceptoId = input.conceptoMOId ?? 'mo_escalera';
   const concepto = buscarConcepto(input.conceptosMO ?? [], conceptoId);
@@ -242,10 +202,12 @@ export function calcularEscalera(input: InputEscalera): SalidaEscalera {
     volumenConcretoM3,
     resumen: [
       { etiqueta: 'Escalones', valor: `${numEscalones}` },
-      { etiqueta: 'Huella × peralte', valor: `${(huella * 100).toFixed(0)} × ${(peralt * 100).toFixed(0)} cm` },
-      { etiqueta: 'Longitud horizontal', valor: `${longHorizontal.toFixed(2)} m` },
-      { etiqueta: 'Longitud de rampa', valor: `${longRampa.toFixed(2)} m` },
-      { etiqueta: 'Concreto', valor: `${volumenConcretoM3.toFixed(3)} m³` },
+      {
+        etiqueta: 'Huella × peralte',
+        valor: `${(huella * 100).toFixed(0)} × ${(peralt * 100).toFixed(0)} cm`,
+      },
+      { etiqueta: 'Longitud rampa', valor: `${longRampa.toFixed(2)} m` },
+      { etiqueta: 'Volumen concreto', valor: `${volumenConcretoM3.toFixed(3)} m³` },
       { etiqueta: 'Acero', valor: `${pesoAcero.toFixed(1)} kg` },
     ],
     materiales,

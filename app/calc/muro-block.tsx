@@ -11,12 +11,10 @@ import {
   Row,
 } from '@/components/UI';
 import {
-  DOSIFICACIONES_MORTERO,
-  type DosificacionMortero,
-} from '@/core/constants/dosificaciones';
-import {
   calcularMuroBlock,
   PIEZAS_MURO,
+  RECETAS_PEGA_BLOCK,
+  type RecetaPegaBlock,
   type TipoPiezaMuro,
   type Vano,
 } from '@/core/calculators/muroBlock';
@@ -37,14 +35,20 @@ const TIPOS: TipoPiezaMuro[] = [
   'tabique_rojo',
 ];
 
+const RECETA_IDS: RecetaPegaBlock[] = [
+  'cal_5botes',
+  'cal_25kg',
+  'mortero_premezclado',
+];
+
 export default function CalcMuroBlockScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [tipoPieza, setTipoPieza] = useState<TipoPiezaMuro>('block_15');
   const [largo, setLargo] = useState('6');
   const [altura, setAltura] = useState('2.5');
-  const [dosId, setDosId] = useState<string>('pega_1:4');
+  const [recetaId, setRecetaId] = useState<RecetaPegaBlock>('cal_5botes');
   const [mermaPiezas, setMermaPiezas] = useState('5');
   const [mermaMortero, setMermaMortero] = useState('5');
 
@@ -66,6 +70,7 @@ export default function CalcMuroBlockScreen() {
 
   const piezaInfo = PIEZAS_MURO[tipoPieza];
   const precioPieza = precios[piezaInfo.precioKey];
+  const recetaInfo = RECETAS_PEGA_BLOCK[recetaId];
 
   const resultado = useMemo(() => {
     const L = parsearNumero(largo);
@@ -76,15 +81,18 @@ export default function CalcMuroBlockScreen() {
       largo: L,
       altura: H,
       vanos,
-      dosificacionId: dosId,
+      recetaId,
       mermaPiezasPct: parsearNumero(mermaPiezas),
       mermaMorteroPct: parsearNumero(mermaMortero),
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         piezaPrecio: precioPieza,
         cementoSaco50: precios.cementoSaco50,
         cementoSaco25: precios.cementoSaco25,
         calBulto25: precios.calBulto25,
+        morteroBulto50: precios.cementoSaco50, // aproximado, mortero suele tener precio similar
         arenaM3: precios.arenaM3,
         aguaM3: precios.aguaM3,
       },
@@ -94,15 +102,13 @@ export default function CalcMuroBlockScreen() {
     largo,
     altura,
     vanos,
-    dosId,
+    recetaId,
     mermaPiezas,
     mermaMortero,
     conceptos,
     precios,
     precioPieza,
   ]);
-
-  const dosOpciones: DosificacionMortero[] = Object.values(DOSIFICACIONES_MORTERO);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
@@ -115,13 +121,12 @@ export default function CalcMuroBlockScreen() {
               onPress={() => setTipoPieza(t)}
               style={[styles.chip, tipoPieza === t && styles.chipActive]}
             >
-              {PIEZAS_MURO[t].nombre.replace('Block hueco', 'Block').replace(' recocido 6×12×24', '')}
+              {PIEZAS_MURO[t].nombre.replace('Block hueco ', '').replace(' recocido 6×12×24', ' rojo')}
             </Text>
           ))}
         </View>
         <Text style={styles.hint}>
-          {piezaInfo.piezasM2} pza/m² · {piezaInfo.morteroM2} m³ mortero/m² ·{' '}
-          Precio: {formatoMXN(precioPieza)}/pza
+          {piezaInfo.piezasM2} pza/m² · Precio: {formatoMXN(precioPieza)}/pza
         </Text>
       </Card>
 
@@ -174,18 +179,22 @@ export default function CalcMuroBlockScreen() {
       </Card>
 
       <Card>
-        <Text style={styles.section}>4. Dosificación de mortero</Text>
+        <Text style={styles.section}>4. Mezcla pega-block</Text>
         <View style={styles.chipRow}>
-          {dosOpciones.map((d) => (
+          {RECETA_IDS.map((id) => (
             <Text
-              key={d.id}
-              onPress={() => setDosId(d.id)}
-              style={[styles.chip, dosId === d.id && styles.chipActive]}
+              key={id}
+              onPress={() => setRecetaId(id)}
+              style={[styles.chip, recetaId === id && styles.chipActive]}
             >
-              {d.nombre.split('(')[0].trim()}
+              {RECETAS_PEGA_BLOCK[id].nombre.split('(')[0].trim()}
             </Text>
           ))}
         </View>
+        <Text style={styles.hint}>{recetaInfo.descripcion}</Text>
+        <Text style={styles.hint}>
+          Rendimiento: ~{(recetaInfo.rinde_m3 * 1000).toFixed(0)} L por bacha
+        </Text>
       </Card>
 
       <Card>
@@ -209,37 +218,34 @@ export default function CalcMuroBlockScreen() {
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <Text style={styles.section}>Resumen</Text>
-              <Pill text={resultado.dosificacion.id.replace('pega_', '')} />
+              <Pill text={resultado.receta.id.replace('_', '·')} />
             </View>
             <Row left="Área bruta" right={`${formatoNumero(resultado.areaBruta, 2)} m²`} />
             {resultado.areaVanos > 0 ? (
               <Row left="Vanos" right={`-${formatoNumero(resultado.areaVanos, 2)} m²`} />
             ) : null}
             <Row left="Área neta" right={`${formatoNumero(resultado.areaNeta, 2)} m²`} bold />
+            <Row left="Bachas a preparar" right={`${resultado.bachasNecesarias}`} bold />
           </Card>
 
           <Card>
-            <Text style={styles.section}>Materiales</Text>
+            <Text style={styles.section}>Materiales a comprar</Text>
             {resultado.materiales.map((m) => (
               <View key={m.material} style={styles.matBlock}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <Text style={styles.matName}>{m.etiqueta}</Text>
                   <Text style={styles.matValue}>
-                    {m.unidad === 'kg'
+                    {m.unidad === 'pza' || m.unidad === 'sacos' ||
+                     m.unidad === 'bultos' || m.unidad === 'botes' || m.unidad === 'kg'
                       ? `${formatoEntero(m.cantidad)} ${m.unidad}`
-                      : m.unidad === 'L'
-                        ? `${formatoEntero(m.cantidad)} L`
-                        : m.unidad === 'pza'
-                          ? `${formatoEntero(m.cantidad)} pza`
-                          : `${formatoNumero(m.cantidad, 3)} ${m.unidad}`}
+                      : `${formatoNumero(m.cantidad, 2)} ${m.unidad}`}
                   </Text>
                 </View>
                 {m.equivalencias?.map((e, i) => (
                   <Text key={i} style={styles.matEq}>
                     └─ {e.etiqueta}:{' '}
-                    {e.unidad === 'sacos' ||
-                    e.unidad === 'botes' ||
-                    e.unidad === 'bultos'
+                    {e.unidad === 'sacos' || e.unidad === 'botes' ||
+                     e.unidad === 'bultos' || e.unidad === 'pza'
                       ? formatoEntero(e.valor)
                       : formatoNumero(e.valor, 2)}{' '}
                     {e.unidad}
@@ -284,14 +290,12 @@ export default function CalcMuroBlockScreen() {
                 `ObraCalc MX — Muro de ${piezaInfo.nombre}`,
                 `Dimensiones: ${largo} × ${altura} m`,
                 `Área neta: ${formatoNumero(resultado.areaNeta, 2)} m² (vanos: ${formatoNumero(resultado.areaVanos, 2)} m²)`,
-                `Mortero: ${resultado.dosificacion.nombre}`,
+                `Receta: ${resultado.receta.nombre}`,
+                `Bachas: ${resultado.bachasNecesarias}`,
                 '',
-                ...resultado.materiales.flatMap((m) => [
-                  `${m.etiqueta}: ${m.unidad === 'pza' ? formatoEntero(m.cantidad) : formatoNumero(m.cantidad, 3)} ${m.unidad}`,
-                  ...(m.equivalencias?.map(
-                    (e) => `  ${e.etiqueta}: ${formatoNumero(e.valor, 2)} ${e.unidad}`,
-                  ) ?? []),
-                ]),
+                ...resultado.materiales.map((m) =>
+                  `${m.etiqueta}: ${m.unidad === 'pza' || m.unidad === 'sacos' || m.unidad === 'bultos' || m.unidad === 'botes' ? formatoEntero(m.cantidad) : formatoNumero(m.cantidad, 2)} ${m.unidad}`,
+                ),
                 '',
                 ...resultado.manoObra.map(
                   (mo) =>
@@ -309,7 +313,7 @@ export default function CalcMuroBlockScreen() {
           <GuardarEnProyectoButton
             tipo="muro-block"
             etiqueta={`${piezaInfo.nombre} ${largo}×${altura}`}
-            inputs={{ tipoPieza, largo, altura, vanos, dosId, mermaPiezas, mermaMortero }}
+            inputs={{ tipoPieza, largo, altura, vanos, recetaId, mermaPiezas, mermaMortero }}
             resultado={resultado}
           />
         </>

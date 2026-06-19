@@ -46,7 +46,7 @@ const DEFAULTS_POR_TIPO: Record<
 
 export default function CalcPiedraScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [tipo, setTipo] = useState<TipoElementoPiedra>('barda');
   const [largo, setLargo] = useState('10');
@@ -91,6 +91,8 @@ export default function CalcPiedraScreen() {
       modoCobroMO: modoMO,
       tarifaMOM3: parsearNumero(tarifaMOM3),
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         piedraM3: precios.piedraM3,
         cementoSaco50: precios.cementoSaco50,

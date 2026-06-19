@@ -19,7 +19,7 @@ const CALIBRES_LIST = (Object.keys(CALIBRES_VARILLA) as CalibreVarilla[]).slice(
 
 export default function CalcLosaMacizaScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [largo, setLargo] = useState('5');
   const [ancho, setAncho] = useState('4');
@@ -44,6 +44,8 @@ export default function CalcLosaMacizaScreen() {
       factorBastones: parsearNumero(factorBast) / 100,
       dosificacionId: dosId,
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         arenaM3: precios.arenaM3,

@@ -29,7 +29,7 @@ import { GuardarEnProyectoButton } from '@/components/GuardarEnProyectoButton';
 
 export default function CalcRepelladoScreen() {
   const { conceptos } = useManoObraStore();
-  const { precios } = usePreciosStore();
+  const { precios, preferenciaCemento } = usePreciosStore();
 
   const [modo, setModo] = useState<ModoEntradaRepellado>('area');
   const [area, setArea] = useState('20');
@@ -53,6 +53,8 @@ export default function CalcRepelladoScreen() {
       dosificacionId: dosId,
       mermaPct: parsearNumero(merma),
       conceptosMO: conceptos,
+      cementoPreferido: preferenciaCemento,
+
       precios: {
         cementoSaco50: precios.cementoSaco50,
         cementoSaco25: precios.cementoSaco25,

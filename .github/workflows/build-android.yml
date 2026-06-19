@@ -1,0 +1,101 @@
+name: Build APK Android
+
+# Cuándo se ejecuta este workflow:
+# 1. Cada vez que haces "git push" a la rama main → compila automáticamente
+# 2. Manualmente desde la pestaña "Actions" en GitHub → botón "Run workflow"
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Permisos necesarios para crear releases con el APK adjunto
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Compilar APK de ObraCalc MX
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # 1. Bajar el código del repositorio
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      # 2. Instalar Node.js
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 3. Instalar Java 17 (requerido para compilar Android)
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 4. Instalar Android SDK
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 5. Instalar dependencias de Node
+      - name: Instalar dependencias
+        run: npm ci --legacy-peer-deps
+
+      # 6. Verificar que los tests pasen (no compila si hay tests rotos)
+      - name: Correr tests
+        run: npx vitest run
+
+      # 7. Generar la carpeta android/ a partir de app.json (Expo prebuild)
+      - name: Expo prebuild
+        run: npx expo prebuild --platform android --no-install --clean
+        env:
+          EXPO_NO_TELEMETRY: 1
+
+      # 8. Cachear gradle (acelera compilaciones siguientes)
+      - name: Cachear Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # 9. Compilar el APK release (sin firma o con keystore de debug)
+      - name: Compilar APK
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      # 10. Renombrar el APK con la fecha y el commit
+      - name: Renombrar APK
+        run: |
+          DATE=$(date +%Y%m%d)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+          NEW_NAME="obracalc-mx-${DATE}-${SHORT_SHA}.apk"
+          cp "$APK_PATH" "$NEW_NAME"
+          echo "APK_NAME=$NEW_NAME" >> $GITHUB_ENV
+
+      # 11. Subir el APK como "artifact" (descargable desde la pestaña Actions)
+      - name: Subir APK como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: obracalc-mx-apk
+          path: ${{ env.APK_NAME }}
+          retention-days: 30
+
+      # 12. (Opcional) Crear un Release con el APK adjunto
+      #    Esto solo corre si el commit incluye un tag tipo v1.0.0
+      - name: Crear Release con APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.APK_NAME }}
+          generate_release_notes: true
