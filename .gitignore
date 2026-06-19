@@ -6,6 +6,5 @@ web-build/
 *.log
 .env*.local
 ios/
-android/
 .tamagui/
 coverage/
